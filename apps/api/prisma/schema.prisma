@@ -1,0 +1,210 @@
+// SaaS database (PostgreSQL, hosted on Supabase).
+// Holds ONLY accounts, store metadata, subscriptions, payments and licenses.
+// POS operational data (products, sales, inventory...) never lives here.
+
+generator client {
+  provider        = "prisma-client-js"
+  // One SQL query with JOINs instead of one query per relation: matters at ~150 ms per round trip to Supabase.
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum PlanCode {
+  FREE
+  PROFESSIONAL
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum LicenseStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UpgradeCodeStatus {
+  UNUSED
+  REDEEMED
+  REVOKED
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  fullName     String   @map("full_name")
+  /// ADMIN = the SaaS owner (sees all customers, generates upgrade codes). Set via `npm run admin:promote`.
+  role         UserRole @default(USER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  stores        Store[]
+  subscriptions Subscription[]
+  payments      Payment[]
+  codesCreated  UpgradeCode[] @relation("CodeCreator")
+  codesRedeemed UpgradeCode[] @relation("CodeRedeemer")
+
+  @@map("users")
+}
+
+model Store {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @map("owner_id") @db.Uuid
+  name      String
+  address   String?
+  currency  String   @default("PHP")
+  timezone  String   @default("Asia/Manila")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  branches Branch[]
+  licenses License[]
+
+  @@index([ownerId])
+  @@map("stores")
+}
+
+/// Branch metadata only. Each branch's POS keeps its own SQLite database.
+model Branch {
+  id        String   @id @default(uuid()) @db.Uuid
+  storeId   String   @map("store_id") @db.Uuid
+  name      String
+  code      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, code])
+  @@map("branches")
+}
+
+/// Pricing catalogue shown on the pricing page.
+model Plan {
+  code         PlanCode @id
+  name         String
+  priceMonthly Int      @map("price_monthly") // minor units (centavos)
+  currency     String   @default("PHP")
+  isActive     Boolean  @default(true) @map("is_active")
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Uuid
+  userId             String             @map("user_id") @db.Uuid
+  planCode           PlanCode           @map("plan_code")
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime           @map("current_period_start")
+  currentPeriodEnd   DateTime?          @map("current_period_end")
+  canceledAt         DateTime?          @map("canceled_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan     Plan      @relation(fields: [planCode], references: [code])
+  payments Payment[]
+
+  @@index([userId, status])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  userId            String        @map("user_id") @db.Uuid
+  subscriptionId    String?       @map("subscription_id") @db.Uuid
+  provider          String // "paymongo" | "xendit" | "mock"
+  providerReference String?       @unique @map("provider_reference")
+  amount            Int // minor units
+  currency          String        @default("PHP")
+  status            PaymentStatus @default(PENDING)
+  isTestMode        Boolean       @default(true) @map("is_test_mode")
+  rawPayload        Json?         @map("raw_payload")
+  paidAt            DateTime?     @map("paid_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  upgradeCode  UpgradeCode?
+
+  @@index([userId, createdAt])
+  @@map("payments")
+}
+
+model License {
+  id         String        @id @default(uuid()) @db.Uuid
+  storeId    String        @map("store_id") @db.Uuid
+  licenseKey String        @unique @map("license_key") // human-enterable, e.g. POS-XXXX-XXXX-XXXX
+  status     LicenseStatus @default(ACTIVE)
+  createdAt  DateTime      @default(now()) @map("created_at")
+  revokedAt  DateTime?     @map("revoked_at")
+
+  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  activations LicenseActivation[]
+
+  @@index([storeId])
+  @@map("licenses")
+}
+
+/// One row per POS install that activated a license (informational, no hardware binding).
+model LicenseActivation {
+  id          String   @id @default(uuid()) @db.Uuid
+  licenseId   String   @map("license_id") @db.Uuid
+  installId   String   @map("install_id") // random UUID generated by the POS on first run
+  deviceName  String?  @map("device_name")
+  appVersion  String?  @map("app_version")
+  activatedAt DateTime @default(now()) @map("activated_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@unique([licenseId, installId])
+  @@map("license_activations")
+}
+
+/// Prepaid upgrade code (the MVP's "payment"). The owner generates codes in the admin page,
+/// sells/gives them to customers, and a customer redeems one to get Professional for `months`.
+model UpgradeCode {
+  id           String            @id @default(uuid()) @db.Uuid
+  code         String            @unique // canonical form: PRO-XXXX-XXXX
+  planCode     PlanCode          @default(PROFESSIONAL) @map("plan_code")
+  months       Int
+  status       UpgradeCodeStatus @default(UNUSED)
+  note         String?
+  createdById  String            @map("created_by_id") @db.Uuid
+  createdAt    DateTime          @default(now()) @map("created_at")
+  redeemedById String?           @map("redeemed_by_id") @db.Uuid
+  redeemedAt   DateTime?         @map("redeemed_at")
+  paymentId    String?           @unique @map("payment_id") @db.Uuid
+
+  createdBy  User     @relation("CodeCreator", fields: [createdById], references: [id])
+  redeemedBy User?    @relation("CodeRedeemer", fields: [redeemedById], references: [id], onDelete: SetNull)
+  payment    Payment? @relation(fields: [paymentId], references: [id])
+
+  @@index([status, createdAt])
+  @@map("upgrade_codes")
+}

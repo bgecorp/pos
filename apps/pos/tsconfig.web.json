@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "node"],
+    "noEmit": true,
+    "paths": {
+      "@pos/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@pos/feature-entitlements": ["../../packages/feature-entitlements/src/index.ts"]
+    }
+  },
+  "include": ["web", "shared", "vite.config.ts"]
+}

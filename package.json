@@ -1,0 +1,27 @@
+{
+  "name": "saas-pos",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Lightweight offline-first SaaS POS MVP",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @pos/shared-types -w @pos/feature-entitlements",
+    "build": "npm run build:packages && npm run build -w @pos/api -w @pos/website -w @pos/pos",
+    "dev:api": "npm run build:packages && npm run start:dev -w @pos/api",
+    "dev:website": "npm run dev -w @pos/website",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:pos": "npm run build:packages && npm run dev:server -w @pos/pos",
+    "dev:pos-web": "npm run dev:web -w @pos/pos",
+    "start:pos": "npm run build:packages && npm run start -w @pos/pos"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "@types/node": "^22.15.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

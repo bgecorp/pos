@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-server/
+dist-web/
+release/
+*.tsbuildinfo
+.env
+.env.local
+*.sqlite
+*.sqlite-journal
+*.db
+.vscode/*
+!.vscode/extensions.json
+.dev-data/
