@@ -1,14 +1,38 @@
 
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "vite",
-  "installCommand": "npm ci --workspace=@pos/website --include-workspace-root",
-  "buildCommand": "npm run build -w @pos/website",
-  "outputDirectory": "apps/website/dist",
+  "services": {
+    "website": {
+      "root": "apps/website",
+      "framework": "vite",
+      "installCommand": "cd ../.. && npm ci",
+      "buildCommand": "cd ../.. && npm run build:packages && npm run build -w @pos/website",
+      "outputDirectory": "dist",
+      "rewrites": [
+        {
+          "source": "/(.*)",
+          "destination": "/index.html"
+        }
+      ]
+    },
+    "api": {
+      "root": "apps/api",
+      "installCommand": "cd ../.. && npm ci",
+      "buildCommand": "cd ../.. && npm run build:packages && npm run build -w @pos/api"
+    }
+  },
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "api"
+      }
+    },
+    {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": {
+        "service": "website"
+      }
     }
   ]
 }
